@@ -44,13 +44,13 @@ changed during runtime.
 To change these settings, command line argments should be passed like this:
 
 ```shell
-tcp-proxy -clientListener="192.168.1.10:80" -addrUpdateListener="0.0.0.0:3000" -initalRemoteAddr="192.168.1.18:22"
+tcp-proxy -clientListener="192.168.1.10:80" -addrUpdateListener="0.0.0.0:3000" -initialRemoteAddr="192.168.1.18:22"
 ```
 
 or with `go run`: 
 
 ```shell
-go run . -clientListener="192.168.1.10:80" -addrUpdateListener="0.0.0.0:3000" -initalRemoteAddr="192.168.1.18:22"
+go run . -clientListener="192.168.1.10:80" -addrUpdateListener="0.0.0.0:3000" -initialRemoteAddr="192.168.1.18:22"
 ```
 
 This will create a listener for client connection on 192.168.1.10 on port 80, a
