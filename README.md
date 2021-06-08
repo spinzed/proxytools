@@ -35,22 +35,23 @@ on the system via command `tcp-proxy`. Installing this it is not required, it is
 possible to run it using `go run .` in the source code directory.  
 
 Running this tool without passing any arguments will use these default settings:
-- the listener for client connections will listen on 0.0.0.0:3110. **Only one
-connection is permitted at a time, subsequent connections will be closed immediately**
+- the listener for client connections will listen on 0.0.0.0:3110. By default,
+it is possible to maintain 16 concurrent connections (this can be changed using
+command line arguments)
 - the listener for address updates will listen on 0.0.0.0:3111
 - on client connection, the proxy will forward the connection to 0.0.0.0:22. Dynamic
 IP updates will change the remote IP if the passed IP is valid. The port cannot be
 changed during runtime.  
-To change these settings, command line argments should be passed like this:
+To change these settings, command line arguments should be passed like this:
 
 ```shell
-tcp-proxy -clientListener="192.168.1.10:80" -addrUpdateListener="0.0.0.0:3000" -initialRemoteAddr="192.168.1.18:22"
+tcp-proxy -clientListener="192.168.1.10:80" -addrUpdateListener="0.0.0.0:3000" -initialRemoteAddr="192.168.1.18:22" -maxConns=10
 ```
 
 or with `go run`: 
 
 ```shell
-go run . -clientListener="192.168.1.10:80" -addrUpdateListener="0.0.0.0:3000" -initialRemoteAddr="192.168.1.18:22"
+go run . -clientListener="192.168.1.10:80" -addrUpdateListener="0.0.0.0:3000" -initialRemoteAddr="192.168.1.18:22" -maxConns=10
 ```
 
 This will create a listener for client connection on 192.168.1.10 on port 80, a
