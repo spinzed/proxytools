@@ -10,10 +10,11 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 func main() {
-	clientListener, remote, addrListener := parseFlags()
+	clientListener, remote, addrListener, MAX_CONNS := parseFlags()
 
 	// Client Listener
 	ln, err := net.Listen("tcp", clientListener.String())
@@ -31,18 +32,18 @@ func main() {
 
 	connDone := make(chan net.Addr)
 
-	// Keep track of whether there's a client connected already.
-	//
-	// It shouldn't happen that this variable is modified concurrently at
-	// any point in time.
-	var ongoing bool
+	// Keeps track of number of connected clients, mu is its mutex
+	var ongoing int
+	var mu sync.Mutex
 
 	// Waits for connection disconnect, then marks the connection free for
 	// other connection to connect.
 	go func() {
 		for addr := range connDone {
-			log.Println("CONNECTION ENDED WITH", addr)
-			ongoing = false
+			mu.Lock()
+			ongoing--
+			log.Printf("[%d] CONNECTION ENDED WITH %s\n", ongoing, addr)
+			mu.Unlock()
 		}
 	}()
 
@@ -87,13 +88,19 @@ func main() {
 			log.Fatal(err)
 		}
 
-		if ongoing {
+		mu.Lock()
+		if ongoing >= MAX_CONNS {
 			log.Printf("ended connection with %s since the connection limit has been reached\n", conn.RemoteAddr())
 			conn.Close()
-		}
 
-		log.Printf("CONNECTION ESTABLISHED WITH %s\n", conn.RemoteAddr())
-		ongoing = true
+			mu.Unlock()
+			continue
+		}
+		ongoing++
+		log.Printf("[%d] CONNECTION ESTABLISHED WITH %s\n", ongoing, conn.RemoteAddr())
+
+		mu.Unlock()
+
 		go handleConn(conn, *remote, connDone)
 	}
 }
@@ -102,12 +109,17 @@ func main() {
 // - address which will be used for the listener for the client connection
 // - address of the remote server which this app is proxying
 // - address which will be used for the listener for the endpoint which will receive remote server address updates
-func parseFlags() (*net.TCPAddr, *net.TCPAddr, *net.TCPAddr) {
-	clientListerSockF := flag.String("clientListener", ":3110", "socket on which this machine listens for incoming connections, format address:port. The default is :3009")
-	remoteSockF := flag.String("initialRemoteAddr", ":22", "initial remote address of the remote server. The default is :22")
-	addrUpdateSockF := flag.String("addrUpdateListener", ":3111", "socket which listens for the updates of the IP that this machine is proxying. The default is :3010")
+func parseFlags() (*net.TCPAddr, *net.TCPAddr, *net.TCPAddr, int) {
+	clientListerSockF := flag.String("clientListener", ":3110", "Socket on which this machine listens for incoming connections, format address:port.")
+	remoteSockF := flag.String("initialRemoteAddr", ":22", "Initial remote address of the remote server.")
+	addrUpdateSockF := flag.String("addrUpdateListener", ":3111", "Socket which listens for the updates of the IP that this machine is proxying.")
+	maxConns := flag.Int("maxConns", 16, "Max number of concurrent client connections.")
 
 	flag.Parse()
+
+	if *maxConns < 1 {
+		log.Fatal("there cannot be less than 1 concurrent connection")
+	}
 
 	clientListerSock, err := parseSocket(*clientListerSockF)
 	if err != nil {
@@ -123,7 +135,7 @@ func parseFlags() (*net.TCPAddr, *net.TCPAddr, *net.TCPAddr) {
 		log.Fatalf("could not get local IP: %s", err)
 	}
 
-	return clientListerSock, remoteSock, addrUpdateSock
+	return clientListerSock, remoteSock, addrUpdateSock, *maxConns
 }
 
 // Handle the connection requested by client.
