@@ -5,7 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io"
+	"io/ioutil"
 	"log"
 	"net"
 	"strconv"
@@ -62,7 +62,7 @@ func main() {
 				log.Printf("a connection with address updater endpoint was attempted, but failed: %s\n", err)
 			}
 
-			data, err := io.ReadAll(conn)
+			data, err := ioutil.ReadAll(conn)
 			if err != nil {
 				log.Printf("error reading from %s connected on the address updater endpoint: %s\n", conn.RemoteAddr(), err)
 			}
