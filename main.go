@@ -85,7 +85,9 @@ func main() {
 	for {
 		conn, err := ln.(*net.TCPListener).Accept()
 		if err != nil {
-			log.Fatal(err)
+			// log the error and return to listening
+			log.Printf("could not accept conneciton: %s", err)
+			continue
 		}
 
 		mu.Lock()
@@ -157,7 +159,9 @@ func handleConn(conn net.Conn, socket net.TCPAddr, done chan<- net.Addr) {
 		var err error
 		outbound, err = net.Dial("tcp", socket.String())
 		if err != nil {
-			log.Fatalf("outbound connection refused: %s", outbound)
+			log.Printf("outbound connection refused: %s", outbound)
+			syncChan <- 1
+			return
 		}
 		defer outbound.Close()
 
@@ -170,6 +174,11 @@ func handleConn(conn net.Conn, socket net.TCPAddr, done chan<- net.Addr) {
 	}()
 
 	<-syncChan
+
+	// something went wrong, don't make a reader and return
+	if outbound == nil {
+		return
+	}
 
 	// Server-client communication
 	reader := bufio.NewReader(conn)
