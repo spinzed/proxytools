@@ -91,7 +91,7 @@ func main() {
 		}
 
 		mu.Lock()
-		if ongoing >= MAX_CONNS {
+		if MAX_CONNS > 0 && ongoing >= MAX_CONNS {
 			log.Printf("ended connection with %s since the connection limit has been reached\n", conn.RemoteAddr())
 			conn.Close()
 
@@ -115,13 +115,9 @@ func parseFlags() (*net.TCPAddr, *net.TCPAddr, *net.TCPAddr, int) {
 	clientListerSockF := flag.String("clientListener", ":3110", "Socket on which this machine listens for incoming connections, format address:port.")
 	remoteSockF := flag.String("initialRemoteAddr", ":22", "Initial remote address of the remote server.")
 	addrUpdateSockF := flag.String("addrUpdateListener", ":3111", "Socket which listens for the updates of the IP that this machine is proxying.")
-	maxConns := flag.Int("maxConns", 16, "Max number of concurrent client connections.")
+    maxConns := flag.Int("maxConns", 0, "Max number of concurrent client connections, 0 or less means no restriction many.")
 
 	flag.Parse()
-
-	if *maxConns < 1 {
-		log.Fatal("there cannot be less than 1 concurrent connection")
-	}
 
 	clientListerSock, err := parseSocket(*clientListerSockF)
 	if err != nil {
