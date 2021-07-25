@@ -13,6 +13,17 @@ import (
 	"sync"
 )
 
+// Addr is basically net.TCPAddr, but the IP isn't a byte slice, but a string.
+// This allows IP to be an unresolved DNS entry.
+type Addr struct {
+    IP string
+    Port int
+}
+
+func (a Addr) String() string {
+    return a.IP + strconv.Itoa(a.Port)
+}
+
 func main() {
 	clientListener, remote, addrListener, MAX_CONNS := parseFlags()
 
@@ -21,14 +32,15 @@ func main() {
 	if err != nil {
 		log.Fatalf("could not open a TCP connection: %s", err)
 	}
-	log.Printf("== LISTENER STARTED ON %s:%d ==\n", clientListener.IP, clientListener.Port)
+	log.Printf("== LISTENER STARTED ON %s ==\n", clientListener.String())
 
 	// Address Updater Listener
 	addrLn, err := net.Listen("tcp", addrListener.String())
 	if err != nil {
-		log.Fatalf("could not open a TCP connection: %s", err)
+		log.Fatalf("could not setup a TCP listener: %s", err)
+        return
 	}
-	log.Printf("== ADDR LISTENER STARTED ON %s:%d ==\n", addrListener.IP, addrListener.Port)
+	log.Printf("== ADDR LISTENER STARTED ON %s ==\n", addrListener)
 
 	connDone := make(chan net.Addr)
 
@@ -72,10 +84,10 @@ func main() {
 				log.Printf("ip received on the updater endpoint is invalid (%s)\n", string(data))
 				continue
 			}
-
-			oldIP := remote.IP
-			remote.IP = parsedIP
-			log.Printf("[!] REMOTE IP UPDATE %s => %s: ", oldIP, remote.IP)
+            
+            old := remote.IP
+			remote.IP = parsedIP.String()
+			log.Printf("[!] REMOTE IP UPDATE %s => %s: ", old, parsedIP)
 		}
 	}()
 
@@ -103,7 +115,7 @@ func main() {
 
 		mu.Unlock()
 
-		go handleConn(conn, *remote, connDone)
+		go handleConn(conn, remote, connDone)
 	}
 }
 
@@ -111,7 +123,7 @@ func main() {
 // - address which will be used for the listener for the client connection
 // - address of the remote server which this app is proxying
 // - address which will be used for the listener for the endpoint which will receive remote server address updates
-func parseFlags() (*net.TCPAddr, *net.TCPAddr, *net.TCPAddr, int) {
+func parseFlags() (*Addr, *Addr, *Addr, int) {
 	clientListerSockF := flag.String("clientListener", ":3110", "Socket on which this machine listens for incoming connections, format address:port.")
 	remoteSockF := flag.String("initialRemoteAddr", ":22", "Initial remote address of the remote server.")
 	addrUpdateSockF := flag.String("addrUpdateListener", ":3111", "Socket which listens for the updates of the IP that this machine is proxying.")
@@ -134,10 +146,11 @@ func parseFlags() (*net.TCPAddr, *net.TCPAddr, *net.TCPAddr, int) {
 	}
 
 	return clientListerSock, remoteSock, addrUpdateSock, *maxConns
+//	return *clientListerSockF, *remoteSockF, *addrUpdateSockF, *maxConns
 }
 
 // Handle the connection requested by client.
-func handleConn(conn net.Conn, socket net.TCPAddr, done chan<- net.Addr) {
+func handleConn(conn net.Conn, socket *Addr, done chan<- net.Addr) {
 	// Clean up the connection when either side is closed
 	defer func() {
 		conn.Close()
@@ -209,21 +222,19 @@ func handleConn(conn net.Conn, socket net.TCPAddr, done chan<- net.Addr) {
 
 // Check is the ip:port configuration valid. It will return an error
 // for any address that contains a colon (IPv6, MAC)
-func parseSocket(sock string) (*net.TCPAddr, error) {
+func parseSocket(sock string) (*Addr, error) {
 	if sock == "" {
 		return nil, errors.New("remote socket not passed")
 	}
 	parts := strings.Split(sock, ":")
-	if len(parts) != 2 {
-		return nil, fmt.Errorf("expected 2 parts (ip and port), got %d", len(parts))
-	}
 
-	var ip net.IP = []byte{0, 0, 0, 0} // empty means that the address is 0.0.0.0
-	if parts[0] != "" {
-		ip = net.ParseIP(parts[0])
-		if ip == nil {
-			return nil, fmt.Errorf("couldn't parse the IP (%s)", parts[0])
-		}
+    // if the port hasn't been passed in
+    if len(parts) == 1 {
+        return &Addr{IP: parts[0], Port: -1}, errors.New("port not passed")
+    }
+
+	if len(parts) > 2 {
+		return nil, fmt.Errorf("expected 1 or 2 parts (ip and port), got %d", len(parts))
 	}
 
 	portInt, err := strconv.Atoi(parts[1])
@@ -231,6 +242,5 @@ func parseSocket(sock string) (*net.TCPAddr, error) {
 		return nil, fmt.Errorf("port %s isn't a number", parts[1])
 	}
 
-	return &net.TCPAddr{IP: ip, Port: portInt, Zone: ""}, nil
-
+	return &Addr{IP: parts[0], Port: portInt}, nil
 }
