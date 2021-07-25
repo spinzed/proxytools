@@ -21,7 +21,7 @@ type Addr struct {
 }
 
 func (a Addr) String() string {
-    return a.IP + strconv.Itoa(a.Port)
+    return a.IP + ":" + strconv.Itoa(a.Port)
 }
 
 func main() {
@@ -124,9 +124,9 @@ func main() {
 // - address of the remote server which this app is proxying
 // - address which will be used for the listener for the endpoint which will receive remote server address updates
 func parseFlags() (*Addr, *Addr, *Addr, int) {
-	clientListerSockF := flag.String("clientListener", ":3110", "Socket on which this machine listens for incoming connections, format address:port.")
-	remoteSockF := flag.String("initialRemoteAddr", ":22", "Initial remote address of the remote server.")
-	addrUpdateSockF := flag.String("addrUpdateListener", ":3111", "Socket which listens for the updates of the IP that this machine is proxying.")
+	clientListerSockF := flag.String("c", ":3110", "Socket on which this machine listens for incoming connections, format address:port.")
+	remoteSockF := flag.String("r", ":22", "Initial remote address of the remote server.")
+	addrUpdateSockF := flag.String("u", ":3111", "Socket which listens for the updates of the IP that this machine is proxying.")
     maxConns := flag.Int("maxConns", 0, "Max number of concurrent client connections, 0 or less means no restriction many.")
 
 	flag.Parse()
