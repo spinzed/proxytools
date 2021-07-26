@@ -36,8 +36,8 @@ possible to run it using `go run .` in the source code directory.
 
 Running this tool without passing any arguments will use these default settings:
 - the listener for client connections will listen on 0.0.0.0:3110. By default,
-it is possible to maintain 16 concurrent connections (this can be changed using
-command line arguments)
+there isn't limit to how many connection can be maintained at a given moment, but
+that can be changed with the -maxConns flag
 - the listener for address updates will listen on 0.0.0.0:3111
 - on client connection, the proxy will forward the connection to 0.0.0.0:22. Dynamic
 IP updates will change the remote IP if the passed IP is valid. The port cannot be
@@ -45,13 +45,13 @@ changed during runtime.
 To change these settings, command line arguments should be passed like this:
 
 ```shell
-tcp-proxy -clientListener="192.168.1.10:80" -addrUpdateListener="0.0.0.0:3000" -initialRemoteAddr="192.168.1.18:22" -maxConns=10
+tcp-proxy -c="192.168.1.10:80" -u="0.0.0.0:3000" -r="192.168.1.18:22" -maxConns=10
 ```
 
 or with `go run`: 
 
 ```shell
-go run . -clientListener="192.168.1.10:80" -addrUpdateListener="0.0.0.0:3000" -initialRemoteAddr="192.168.1.18:22" -maxConns=10
+go run . -c="192.168.1.10:80" -u="0.0.0.0:3000" -r="192.168.1.18:22" -maxConns=10
 ```
 
 This will create a listener for client connection on 192.168.1.10 on port 80, a
@@ -63,3 +63,4 @@ it will set as 192.168.1.18 the initial address of the remote machine and port
 Everything is subject to change mostly according to my own needs, that means that
 plans of releasing 1.0 are nowhere near. Nevertheless, I'm open to any feedback
 to improve this piece of software to fit needs not just myself, but others as well (:
+
