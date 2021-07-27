@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"net"
@@ -98,7 +99,7 @@ func main() {
 		conn, err := ln.(*net.TCPListener).Accept()
 		if err != nil {
 			// log the error and return to listening
-			log.Printf("could not accept conneciton: %s", err)
+			log.Printf("could not accept connection: %s", err)
 			continue
 		}
 
@@ -146,7 +147,6 @@ func parseFlags() (*Addr, *Addr, *Addr, int) {
 	}
 
 	return clientListerSock, remoteSock, addrUpdateSock, *maxConns
-//	return *clientListerSockF, *remoteSockF, *addrUpdateSockF, *maxConns
 }
 
 // Handle the connection requested by client.
@@ -177,7 +177,19 @@ func handleConn(conn net.Conn, socket *Addr, done chan<- net.Addr) {
 		syncChan <- 1
 
 		reader := bufio.NewReader(outbound)
-		reader.WriteTo(conn)
+        for {
+            a := make([]byte, 1024)
+            r, err := reader.Read(a)
+            if err == io.EOF {
+                break
+            }
+            if err != nil {
+                log.Printf("could not ready bytes from outbound: %v", err)
+                break
+            }
+            conn.Write(a[:r])
+        }
+		//reader.WriteTo(conn)
 
 		syncChan <- 1
 	}()
