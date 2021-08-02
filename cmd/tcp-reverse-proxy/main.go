@@ -1,28 +1,28 @@
 package main
 
 import (
-	"bufio"
 	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"log"
 	"net"
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/spinzed/proxytools/internal"
 )
 
 // Addr is basically net.TCPAddr, but the IP isn't a byte slice, but a string.
 // This allows IP to be an unresolved DNS entry.
 type Addr struct {
-    IP string
-    Port int
+	IP   string
+	Port int
 }
 
 func (a Addr) String() string {
-    return a.IP + ":" + strconv.Itoa(a.Port)
+	return a.IP + ":" + strconv.Itoa(a.Port)
 }
 
 func main() {
@@ -39,7 +39,7 @@ func main() {
 	addrLn, err := net.Listen("tcp", addrListener.String())
 	if err != nil {
 		log.Fatalf("could not setup a TCP listener: %s", err)
-        return
+		return
 	}
 	log.Printf("== ADDR LISTENER STARTED ON %s ==\n", addrListener)
 
@@ -85,8 +85,8 @@ func main() {
 				log.Printf("ip received on the updater endpoint is invalid (%s)\n", string(data))
 				continue
 			}
-            
-            old := remote.IP
+
+			old := remote.IP
 			remote.IP = parsedIP.String()
 			log.Printf("[!] REMOTE IP UPDATE %s => %s: ", old, parsedIP)
 		}
@@ -96,7 +96,7 @@ func main() {
 	// separate goroutine if the connection is eligible. If another
 	// connection exists, it will end it immediately.
 	for {
-		conn, err := ln.(*net.TCPListener).Accept()
+		conn, err := ln.Accept()
 		if err != nil {
 			// log the error and return to listening
 			log.Printf("could not accept connection: %s", err)
@@ -105,7 +105,7 @@ func main() {
 
 		mu.Lock()
 		if MAX_CONNS > 0 && ongoing >= MAX_CONNS {
-			log.Printf("ended connection with %s since the connection limit has been reached\n", conn.RemoteAddr())
+			log.Printf("Ended connection with %s since the connection limit has been reached\n", conn.RemoteAddr())
 			conn.Close()
 
 			mu.Unlock()
@@ -128,7 +128,7 @@ func parseFlags() (*Addr, *Addr, *Addr, int) {
 	clientListerSockF := flag.String("c", ":3110", "Socket on which this machine listens for incoming connections, format address:port.")
 	remoteSockF := flag.String("r", ":22", "Initial remote address of the remote server.")
 	addrUpdateSockF := flag.String("u", ":3111", "Socket which listens for the updates of the IP that this machine is proxying.")
-    maxConns := flag.Int("maxConns", 0, "Max number of concurrent client connections, 0 or less means no restriction many.")
+	maxConns := flag.Int("maxConns", 0, "Max number of concurrent client connections, 0 or less means no restriction many.")
 
 	flag.Parse()
 
@@ -140,7 +140,6 @@ func parseFlags() (*Addr, *Addr, *Addr, int) {
 	if err != nil {
 		log.Fatalf("error parsing the remote socket: %s", err)
 	}
-	//addrUpdateSock, err := getLocalIP()
 	addrUpdateSock, err := parseSocket(*addrUpdateSockF)
 	if err != nil {
 		log.Fatalf("could not get local IP: %s", err)
@@ -166,7 +165,8 @@ func handleConn(conn net.Conn, socket *Addr, done chan<- net.Addr) {
 	// Client-server communication
 	go func() {
 		var err error
-		outbound, err = net.Dial("tcp", socket.String())
+		outbound, err = internal.MakeTCPConn(socket.String())
+
 		if err != nil {
 			log.Printf("outbound connection refused: %s", outbound)
 			syncChan <- 1
@@ -176,20 +176,8 @@ func handleConn(conn net.Conn, socket *Addr, done chan<- net.Addr) {
 
 		syncChan <- 1
 
-		reader := bufio.NewReader(outbound)
-        for {
-            a := make([]byte, 1024)
-            r, err := reader.Read(a)
-            if err == io.EOF {
-                break
-            }
-            if err != nil {
-                log.Printf("could not ready bytes from outbound: %v", err)
-                break
-            }
-            conn.Write(a[:r])
-        }
-		//reader.WriteTo(conn)
+		// Copy from outbound to client until exhausted
+        internal.CopyData(outbound, conn)
 
 		syncChan <- 1
 	}()
@@ -202,35 +190,11 @@ func handleConn(conn net.Conn, socket *Addr, done chan<- net.Addr) {
 	}
 
 	// Server-client communication
-	reader := bufio.NewReader(conn)
-	reader.WriteTo(outbound)
+    // Copy from client to outbound until exhausted
+    internal.CopyData(conn, outbound)
 
 	<-syncChan
 }
-
-// Get the IP of the active net interface.
-//func getLocalIP() (net.IP, error) {
-//	ifaces, err := net.Interfaces()
-//	if err != nil {
-//		return nil, err
-//	}
-//	for i := range ifaces {
-//		iface := ifaces[len(ifaces)-i-1]
-//		addrs, err := iface.Addrs()
-//		if err != nil {
-//			return nil, err
-//		}
-//		for _, addr := range addrs {
-//			switch v := addr.(type) {
-//			case *net.IPNet:
-//				return v.IP, nil
-//			case *net.IPAddr:
-//				return v.IP, nil
-//			}
-//		}
-//	}
-//	return nil, errors.New("could not read IP from either interface")
-//}
 
 // Check is the ip:port configuration valid. It will return an error
 // for any address that contains a colon (IPv6, MAC)
@@ -240,10 +204,10 @@ func parseSocket(sock string) (*Addr, error) {
 	}
 	parts := strings.Split(sock, ":")
 
-    // if the port hasn't been passed in
-    if len(parts) == 1 {
-        return &Addr{IP: parts[0], Port: -1}, errors.New("port not passed")
-    }
+	// if the port hasn't been passed in
+	if len(parts) == 1 {
+		return &Addr{IP: parts[0], Port: -1}, errors.New("port not passed")
+	}
 
 	if len(parts) > 2 {
 		return nil, fmt.Errorf("expected 1 or 2 parts (ip and port), got %d", len(parts))

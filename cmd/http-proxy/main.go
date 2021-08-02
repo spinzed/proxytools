@@ -2,126 +2,109 @@ package main
 
 import (
 	"flag"
-	"io"
 	"log"
 	"net"
 	"net/http"
-	"strings"
+
+	"github.com/spinzed/proxytools/internal"
 )
 
-// Hop-by-hop headers. These are removed when sent to the backend.
-// http://www.w3.org/Protocols/rfc2616/rfc2616-sec13.html
-var hopHeaders = []string{
-	"Connection",
-	"Keep-Alive",
-	"Proxy-Authenticate",
-	"Proxy-Authorization",
-	"Te", // canonicalized version of "TE"
-	"Trailers",
-	"Transfer-Encoding",
-	"Upgrade",
-}
-
-func copyHeader(dst, src http.Header) {
-	for k, vv := range src {
-		for _, v := range vv {
-			dst.Add(k, v)
-		}
-	}
-}
-
-func delHopHeaders(header http.Header) {
-	for _, h := range hopHeaders {
-		header.Del(h)
-	}
-}
-
-func appendHostToXForwardHeader(header http.Header, host string) {
-	// If we aren't the first proxy retain prior
-	// X-Forwarded-For information as a comma+space
-	// separated list and fold multiple headers into one.
-	if prior, ok := header["X-Forwarded-For"]; ok {
-		host = strings.Join(prior, ", ") + ", " + host
-	}
-	header.Set("X-Forwarded-For", host)
-}
-
-func copyData(source, dest net.Conn) {
-    defer source.Close()
-    defer dest.Close()
-    io.Copy(dest, source)
-}
-
-type Proxy struct {}
+type Proxy struct{}
 
 func (p *Proxy) ServeHTTP(wr http.ResponseWriter, req *http.Request) {
 	log.Println(req.RemoteAddr, "", req.Method, "", req.URL)
 
-    // https request, set up layer 4 TCP tunnel
-    if req.Method == "CONNECT" {
-        setupTunnel(wr, req)
-        return
+	if req.Method == "CONNECT" {
+		handleHTTPS(wr, req)
+    } else {
+        handleHTTP(wr, req)
     }
+}
 
+// Setup two http connections, bodies are copied from one to another.
+// The connection is not end-to-end encrypted.
+func handleHTTP(wr http.ResponseWriter, req *http.Request) {
 	if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
-	  	msg := "unsupported protocol scheme "+req.URL.Scheme
+		msg := "unsupported protocol scheme " + req.URL.Scheme
 		http.Error(wr, msg, http.StatusBadRequest)
 		log.Println(msg)
 		return
 	}
 
+    // Client which will connect to the actual destination.
+    // The request that will be used with this client is the same one
+    // that is used for the client-proxy connection with some modified values.
 	client := &http.Client{}
 
 	//http: Request.RequestURI can't be set in client requests.
 	//http://golang.org/src/pkg/net/http/client.go
 	req.RequestURI = ""
 
-	delHopHeaders(req.Header)
+    // Delete hop by hop headers
+	internal.DelHopHeaders(req.Header)
 
+    // If there wasn't any error getting the remote address, append this
+    // proxy to the x-forwarded-for proxy IP list
 	if clientIP, _, err := net.SplitHostPort(req.RemoteAddr); err == nil {
-		appendHostToXForwardHeader(req.Header, clientIP)
+		internal.AppendHostToXForwardHeader(req.Header, clientIP)
 	}
 
+    // Make the request with the original request object
 	resp, err := client.Do(req)
 	if err != nil {
 		http.Error(wr, "Server Error", http.StatusInternalServerError)
 		log.Println("ServeHTTP error: ", err)
-        return
+		return
 	}
 	defer resp.Body.Close()
 
 	log.Println(req.RemoteAddr, " ", resp.Status)
 
-	delHopHeaders(resp.Header)
+    // Remove hop by hop headers
+	internal.DelHopHeaders(resp.Header)
 
-	copyHeader(wr.Header(), resp.Header)
+    // Copy the rest of the headers to the response
+	internal.CopyHeader(wr.Header(), resp.Header)
+
+    // Pass the proxy-server response status through the client-proxy connection.
+    // When the client recieves this, it will start sending the information that
+    // needs to be carried over to the client/next hop.
 	wr.WriteHeader(resp.StatusCode)
-	io.Copy(wr, resp.Body)
+
+    // Copy the data from server-proxy response and send it to the client
+	internal.CopyData(resp.Body, wr)
 }
 
-func setupTunnel(wr http.ResponseWriter, req *http.Request) {
-    serverConn, err := net.Dial("tcp", req.URL.Host)
-    if err != nil {
-        wr.WriteHeader(http.StatusServiceUnavailable)
-        log.Println("Error trying to make a connection with the server:", err)
-        return
-    }
-    wr.WriteHeader(http.StatusOK)
+// Setup a layer 4 proxy tunnel for https connections. The proxy cannot
+// read the content, the conversation is end-to-end encrypted.
+func handleHTTPS(wr http.ResponseWriter, req *http.Request) {
+	serverConn, err := internal.MakeTCPConn(req.URL.Host)
+	if err != nil {
+		wr.WriteHeader(http.StatusServiceUnavailable)
+		log.Println("Error trying to make a connection with the server:", err)
+		return
+	}
+	wr.WriteHeader(http.StatusOK)
 
-    hijacker, ok := wr.(http.Hijacker)
-    if !ok {
-        http.Error(wr, "Hijacking not supported", http.StatusInternalServerError)
-        return
-    }
-    
-    clientConn, _, err := hijacker.Hijack()
-    if err != nil {
-        http.Error(wr, err.Error(), http.StatusServiceUnavailable)
-    }
+    // Check if it's possible to extract the underlying TCP connection object.
+    // It should always be possible so this shouldn't fail.
+	hijacker, ok := wr.(http.Hijacker)
+	if !ok {
+		http.Error(wr, "Hijacking not supported", http.StatusInternalServerError)
+		return
+	}
 
-    go copyData(clientConn, serverConn)
-    go copyData(serverConn, clientConn)
-    return
+    // Extract the underlying connection object
+	clientConn, _, err := hijacker.Hijack()
+	if err != nil {
+		http.Error(wr, err.Error(), http.StatusServiceUnavailable)
+	}
+
+    // Setup routines which will copy recieved data from one connection to
+    // another, one routine for each direction. After the connection end,
+    // they will be closed.
+	go internal.CopyAndClose(clientConn, serverConn)
+	go internal.CopyAndClose(serverConn, clientConn)
 }
 
 func main() {
@@ -130,18 +113,18 @@ func main() {
 	var pem = flag.String("pem", "", "Absolute path to the pem file.")
 	var key = flag.String("key", "", "Absolute path to the key file.")
 	flag.Parse()
-	
-    handler := &Proxy{}
-	
+
+	handler := &Proxy{}
+
 	log.Println("Starting proxy server on", *addr)
-    
-    if *https {
-        if err := http.ListenAndServeTLS(*addr, *pem, *key, handler); err != nil {
-            log.Fatal("ListenAndServe:", err)
-        }
-    } else {
-        if err := http.ListenAndServe(*addr, handler); err != nil {
-            log.Fatal("ListenAndServe:", err)
-        }
-    }
+
+	if *https {
+		if err := http.ListenAndServeTLS(*addr, *pem, *key, handler); err != nil {
+			log.Fatal("ListenAndServe:", err)
+		}
+	} else {
+		if err := http.ListenAndServe(*addr, handler); err != nil {
+			log.Fatal("ListenAndServe:", err)
+		}
+	}
 }
