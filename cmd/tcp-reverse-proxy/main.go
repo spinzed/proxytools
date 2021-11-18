@@ -177,7 +177,7 @@ func handleConn(conn net.Conn, socket *Addr, done chan<- net.Addr) {
 		syncChan <- 1
 
 		// Copy from outbound to client until exhausted
-        internal.CopyData(outbound, conn)
+		internal.CopyData(outbound, conn)
 
 		syncChan <- 1
 	}()
@@ -190,8 +190,8 @@ func handleConn(conn net.Conn, socket *Addr, done chan<- net.Addr) {
 	}
 
 	// Server-client communication
-    // Copy from client to outbound until exhausted
-    internal.CopyData(conn, outbound)
+	// Copy from client to outbound until exhausted
+	internal.CopyData(conn, outbound)
 
 	<-syncChan
 }

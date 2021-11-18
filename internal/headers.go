@@ -41,4 +41,3 @@ func AppendHostToXForwardHeader(header http.Header, host string) {
 	}
 	header.Set("X-Forwarded-For", host)
 }
-

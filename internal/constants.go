@@ -1,6 +1,5 @@
 package internal
 
 const (
-    DIAL_TIMEOUT = 10
+	DIAL_TIMEOUT = 10
 )
-
