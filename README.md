@@ -55,9 +55,10 @@ needing to know its IP at all. This can replace services like ngrok.
 
 Command line arguments:
 - -c - ip:port of the listener for incoming connections. Default: 0.0.0.0:3110
-- -u - ip:port of the listener for IP updates of the remote server. Default: 0.0.0.0:22
-- -r - ip:port of the remote server which this proxy is proxying. Default: 0.0.0.0:3111
-- -maxConns - max client connections which are permitted at a given moment. Default: unlimited
+- -u - ip:port of the listener for IP updates of the remote server. Default: 0.0.0.0:3111
+- -r - ip:port of the remote server which this proxy is proxying. Default: 0.0.0.0:22
+- -maxConns - max client connections which are permitted at a given moment. Default: unlimited  
+
 Example:  
 
 ```shell
